@@ -125,6 +125,7 @@ export default defineConfig({
                         {
                             label: "Elements",
                             items: [
+                                { label: "Image", slug: "reference/image" },
                                 { label: "Rectangle", slug: "reference/rectangle" },
                                 { label: "Window", slug: "reference/window" },
                             ],
@@ -135,6 +136,10 @@ export default defineConfig({
                                 {
                                     label: "Colors & Brushes",
                                     slug: "reference/property-types/colors-and-brushes",
+                                },
+                                {
+                                    label: "Images",
+                                    slug: "reference/property-types/images",
                                 },
                                 {
                                     label: "Numeric Types",
