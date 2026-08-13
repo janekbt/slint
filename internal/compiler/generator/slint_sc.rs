@@ -5,7 +5,7 @@
 
 use crate::CompilerConfiguration;
 use crate::embedded_resources::{EmbeddedResources, EmbeddedResourcesIdx, EmbeddedResourcesKind};
-use crate::expression_tree::{Expression, ImageReference, Unit};
+use crate::expression_tree::{BuiltinFunction, Callable, Expression, ImageReference, Unit};
 use crate::langtype::{EnumerationValue, StructName, Type};
 use crate::namedreference::NamedReference;
 use crate::object_tree::{Document, ElementRc, PropertyVisibility};
@@ -355,7 +355,9 @@ fn compile_expression(expr: &Expression, ctx: &Ctx) -> TokenStream {
         },
         // `int`, `float`, and `length` are all `i32` at runtime, so a cast
         // between them lowers to the operand itself.
-        Expression::Cast { from, to: Type::Int32 | Type::Float32 } => compile_expression(from, ctx),
+        Expression::Cast { from, to: Type::Int32 | Type::Float32 | Type::LogicalLength } => {
+            compile_expression(from, ctx)
+        }
         Expression::PropertyReference(nr) => {
             // An unbound property has its type's default value.
             compile_property_reference(nr, ctx).unwrap_or_else(|| default_value(&nr.ty()))
@@ -390,11 +392,26 @@ fn compile_expression(expr: &Expression, ctx: &Ctx) -> TokenStream {
             quote!(#name { #(#fields)* })
         }
         // Field access reads a field out of a struct value.
-        Expression::StructFieldAccess { base, name } => {
-            let base = compile_expression(base, ctx);
-            let field = format_ident!("{}", name.replace('-', "_"));
-            quote!((#base).#field)
-        }
+        Expression::StructFieldAccess { base, name } => match base.as_ref() {
+            // The dimensions of an image value, `some-image.width`: a field of
+            // the ImageSize builtin call the lookup wraps around the image.
+            // The dimensions are `usize` at runtime and `i32` in the language;
+            // a dimension beyond `i32` saturates.
+            Expression::FunctionCall {
+                function: Callable::Builtin(BuiltinFunction::ImageSize),
+                arguments,
+                ..
+            } => {
+                let image = compile_expression(&arguments[0], ctx);
+                let accessor = format_ident!("{}", name.as_str());
+                quote!(i32::try_from((#image).#accessor()).unwrap_or(i32::MAX))
+            }
+            base => {
+                let base = compile_expression(base, ctx);
+                let field = format_ident!("{}", name.replace('-', "_"));
+                quote!((#base).#field)
+            }
+        },
         Expression::BinaryExpression { lhs, rhs, op } => {
             let lhs = compile_expression(lhs, ctx);
             let rhs = compile_expression(rhs, ctx);
@@ -456,6 +473,20 @@ fn compile_expression(expr: &Expression, ctx: &Ctx) -> TokenStream {
     }
 }
 
+/// Whether the element is an image item: its resolved native class is, or
+/// inherits, the class that declares `source`. Class selection may land on
+/// the ImageItem base or a subclass of it, so the ancestry decides.
+fn is_image_item(elem: &ElementRc) -> bool {
+    let mut class = elem.borrow().native_class();
+    while let Some(native) = class {
+        if native.class_name == "ImageItem" {
+            return true;
+        }
+        class = native.parent.clone();
+    }
+    false
+}
+
 /// Emit the render code for `elem` and its descendants: a block that adds the
 /// element's position to the running `offset_x`/`offset_y`, paints its
 /// background if it has one, and nests the children's blocks so that later
@@ -489,9 +520,26 @@ fn emit_element(elem: &ElementRc, ctx: &Ctx) -> TokenStream {
                 [offset_x, offset_y], [#w, #h], #color);
         )
     });
+    // An image item paints its source image at the element position, one
+    // image pixel per frame-buffer pixel: the element is always the size of
+    // the image, so there is nothing to scale or clip to.
+    let source = is_image_item(elem)
+        .then(|| {
+            elem.borrow()
+                .binding_cell_including_synthetic("source")
+                .map(|b| b.borrow().expression.clone())
+        })
+        .flatten();
+    let draw_image = source.map(|source| {
+        let source = compile_expression(&source, ctx);
+        quote!(
+            slint_sc::private_unstable_api::renderer::draw_image(frame_buffer,
+                [width, height], [offset_x, offset_y], #source);
+        )
+    });
     let children: Vec<TokenStream> =
         elem.borrow().children.iter().map(|child| emit_element(child, ctx)).collect();
-    if fill.is_none() && children.iter().all(|c| c.is_empty()) {
+    if fill.is_none() && draw_image.is_none() && children.iter().all(|c| c.is_empty()) {
         return TokenStream::new();
     }
     quote! {
@@ -499,6 +547,7 @@ fn emit_element(elem: &ElementRc, ctx: &Ctx) -> TokenStream {
             let offset_x = offset_x + #x;
             let offset_y = offset_y + #y;
             #fill
+            #draw_image
             #(#children)*
         }
     }
