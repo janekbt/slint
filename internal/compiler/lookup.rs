@@ -666,23 +666,37 @@ impl LookupObject for TypeSpecificLookup {
         ctx: &LookupCtx,
         f: &mut impl FnMut(&SmolStr, LookupResult) -> Option<R>,
     ) -> Option<R> {
+        (ExpectedEnumLookup, ColorEasingCursorLookup).for_each_entry(ctx, f)
+    }
+
+    fn lookup(&self, ctx: &LookupCtx, name: &SmolStr) -> Option<LookupResult> {
+        (ExpectedEnumLookup, ColorEasingCursorLookup).lookup(ctx, name)
+    }
+}
+
+/// The color, easing, and cursor names resolved for an expected type: the
+/// half of [`TypeSpecificLookup`] that full Slint has beyond the Slint SC
+/// subset.
+struct ColorEasingCursorLookup;
+impl LookupObject for ColorEasingCursorLookup {
+    fn for_each_entry<R>(
+        &self,
+        ctx: &LookupCtx,
+        f: &mut impl FnMut(&SmolStr, LookupResult) -> Option<R>,
+    ) -> Option<R> {
         match &ctx.expected_type {
-            Type::Color => ColorSpecific.for_each_entry(ctx, f),
-            Type::Brush => ColorSpecific.for_each_entry(ctx, f),
+            Type::Color | Type::Brush => ColorSpecific.for_each_entry(ctx, f),
             Type::Easing => EasingSpecific.for_each_entry(ctx, f),
             Type::MouseCursor => MouseCursorSpecific.for_each_entry(ctx, f),
-            Type::Enumeration(enumeration) => enumeration.clone().for_each_entry(ctx, f),
             _ => None,
         }
     }
 
     fn lookup(&self, ctx: &LookupCtx, name: &SmolStr) -> Option<LookupResult> {
         match &ctx.expected_type {
-            Type::Color => ColorSpecific.lookup(ctx, name),
-            Type::Brush => ColorSpecific.lookup(ctx, name),
+            Type::Color | Type::Brush => ColorSpecific.lookup(ctx, name),
             Type::Easing => EasingSpecific.lookup(ctx, name),
             Type::MouseCursor => MouseCursorSpecific.lookup(ctx, name),
-            Type::Enumeration(enumeration) => enumeration.clone().lookup(ctx, name),
             _ => None,
         }
     }
@@ -996,6 +1010,49 @@ impl LookupObject for BuiltinNamespaceLookup {
     }
 }
 
+/// A lookup provider of full Slint that the Slint SC subset doesn't offer:
+/// in SC mode the names it would resolve don't resolve at all. The resolver
+/// then reports such a name as unsupported rather than unknown, by looking
+/// it up once more through [`slint_sc_hidden_lookup`].
+struct HiddenInSlintSc<T>(T);
+impl<T: LookupObject> LookupObject for HiddenInSlintSc<T> {
+    fn for_each_entry<R>(
+        &self,
+        ctx: &LookupCtx,
+        f: &mut impl FnMut(&SmolStr, LookupResult) -> Option<R>,
+    ) -> Option<R> {
+        if ctx.diag.is_slint_sc() {
+            return None;
+        }
+        self.0.for_each_entry(ctx, f)
+    }
+
+    fn lookup(&self, ctx: &LookupCtx, name: &SmolStr) -> Option<LookupResult> {
+        if ctx.diag.is_slint_sc() {
+            return None;
+        }
+        self.0.lookup(ctx, name)
+    }
+}
+
+/// The values of an expected enumeration type: the half of
+/// [`TypeSpecificLookup`] that the Slint SC subset keeps. A builtin enum
+/// resolves here too; a value of one is rejected by the reference check,
+/// since the property carrying the expected type was already rejected.
+struct ExpectedEnumLookup;
+impl LookupObject for ExpectedEnumLookup {
+    fn for_each_entry<R>(
+        &self,
+        ctx: &LookupCtx,
+        f: &mut impl FnMut(&SmolStr, LookupResult) -> Option<R>,
+    ) -> Option<R> {
+        match &ctx.expected_type {
+            Type::Enumeration(enumeration) => enumeration.clone().for_each_entry(ctx, f),
+            _ => None,
+        }
+    }
+}
+
 pub fn global_lookup() -> impl LookupObject {
     (
         LocalVariableLookup,
@@ -1009,13 +1066,28 @@ pub fn global_lookup() -> impl LookupObject {
                         InScopeLookup,
                         (
                             LookupType,
-                            (BuiltinNamespaceLookup, (TypeSpecificLookup, BuiltinFunctionLookup)),
+                            (
+                                HiddenInSlintSc(BuiltinNamespaceLookup),
+                                (
+                                    (ExpectedEnumLookup, HiddenInSlintSc(ColorEasingCursorLookup)),
+                                    HiddenInSlintSc(BuiltinFunctionLookup),
+                                ),
+                            ),
                         ),
                     ),
                 ),
             ),
         ),
     )
+}
+
+/// The providers [`global_lookup`] wraps in [`HiddenInSlintSc`], without the
+/// gate. The resolver diagnoses a name the subset hides by looking it up
+/// here after the global lookup failed; the other providers of the chain
+/// just failed and need no second try.
+#[cfg(feature = "slint-sc")]
+pub(crate) fn slint_sc_hidden_lookup() -> impl LookupObject {
+    (BuiltinNamespaceLookup, (ColorEasingCursorLookup, BuiltinFunctionLookup))
 }
 
 impl LookupObject for Expression {

@@ -2366,6 +2366,13 @@ fn lookup_qualified_name_node(
                 }
             }
 
+            // Nothing better to say: if the name is one the Slint SC gating
+            // hid, report it as unsupported rather than unknown.
+            #[cfg(feature = "slint-sc")]
+            if slint_sc_hidden_name(ctx, &first_str, first.text(), &node) {
+                return None;
+            }
+
             if it.next().is_some() {
                 ctx.diag.push_error(format!("Cannot access id '{}'", first.text()), &node);
             } else {
@@ -3079,6 +3086,23 @@ fn check_callback_alias_validity(
     }
 }
 
+/// Report a name that the Slint SC lookup gating hid, if that is what failed
+/// to resolve: a hidden name still resolves among the gated providers, see
+/// `HiddenInSlintSc` in the lookup module. Returns whether it reported.
+#[cfg(feature = "slint-sc")]
+fn slint_sc_hidden_name(
+    ctx: &mut LookupCtx,
+    name: &SmolStr,
+    display: &str,
+    node: &SyntaxNode,
+) -> bool {
+    if !ctx.diag.slint_sc || crate::lookup::slint_sc_hidden_lookup().lookup(ctx, name).is_none() {
+        return false;
+    }
+    ctx.diag.slint_sc_error(&format!("'{display}' is"), node);
+    true
+}
+
 /// Validate an identifier reference against the Slint SC subset.
 ///
 /// The accepted references are a read of a property of an SC type, on any
@@ -3086,6 +3110,11 @@ fn check_callback_alias_validity(
 /// literal, a value of a user-declared enum, and a field access on an SC struct.
 /// A reference to a non-SC type, or to something else, is rejected. A property
 /// declaration's binding follows the same rules.
+///
+/// This is the backstop behind the lookup's own gating: the global-scope
+/// names full Slint has beyond the subset don't resolve in SC mode in the
+/// first place, and get a dedicated message (see `NotInSlintSc` in the
+/// lookup module).
 #[cfg(feature = "slint-sc")]
 fn check_slint_sc_reference(expr: &Expression, node: &SyntaxNode, ctx: &mut LookupCtx) {
     match expr {
@@ -3097,12 +3126,11 @@ fn check_slint_sc_reference(expr: &Expression, node: &SyntaxNode, ctx: &mut Look
         Expression::BoolLiteral(_) => {}
         // A value of a user-declared enum, written `EnumName.value`.
         Expression::EnumerationValue(ev) if ev.enumeration.node.is_some() => {}
-        // A field access on an SC struct, written `some-struct.field`. The base
-        // being an SC struct is enough: its fields are always SC types. This
-        // includes the dimensions of an image value, `some-image.width` and
-        // `some-image.height`: fields of the builtin Size struct the lookup
-        // wraps around the image.
-        Expression::StructFieldAccess { base, .. } if base.ty().is_slint_sc() => {}
+        // A field access on a value an SC expression may produce, written
+        // `some-struct.field`, or the dimensions of an image value,
+        // `some-image.width` and `some-image.height`. The base being such a
+        // value is enough: its fields are always SC types.
+        Expression::StructFieldAccess { base, .. } if base.ty().is_slint_sc_value() => {}
         _ => ctx.diag.slint_sc_error("Identifier references are", node),
     }
 }
