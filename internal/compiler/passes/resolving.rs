@@ -481,10 +481,7 @@ impl Expression {
                         return Self::from_at_keys_node(node.into(), ctx);
                     }
                     SyntaxKind::QualifiedName => {
-                        let expr = Self::from_qualified_name_node(node.clone().into(), ctx);
-                        #[cfg(feature = "slint-sc")]
-                        check_slint_sc_reference(&expr, &node, ctx);
-                        return expr;
+                        return Self::from_qualified_name_node(node.into(), ctx);
                     }
                     SyntaxKind::FunctionCallExpression => {
                         #[cfg(feature = "slint-sc")]
@@ -492,11 +489,7 @@ impl Expression {
                         return Self::from_function_call_node(node.into(), ctx);
                     }
                     SyntaxKind::MemberAccess => {
-                        let expr = Self::from_member_access_node(node.clone().into(), ctx);
-                        // A field access on an SC struct is a valid SC reference.
-                        #[cfg(feature = "slint-sc")]
-                        check_slint_sc_reference(&expr, &node, ctx);
-                        return expr;
+                        return Self::from_member_access_node(node.into(), ctx);
                     }
                     SyntaxKind::IndexExpression => {
                         #[cfg(feature = "slint-sc")]
@@ -2512,8 +2505,12 @@ fn continue_lookup_within_element(
 
     let lookup_result = elem.borrow().lookup_property(&prop_name);
     let local_to_component = lookup_result.is_local_to_component && ctx.is_local_element(elem);
+    // A property, callback, or function whose type is outside the Slint SC
+    // subset doesn't resolve, like every name outside the subset: it falls
+    // through to the doesn't-have-a-property error below.
+    let sc_resolves = crate::lookup::slint_sc_resolves(ctx, &lookup_result.property_type);
 
-    if lookup_result.property_type.is_property_type() {
+    if sc_resolves && lookup_result.property_type.is_property_type() {
         if !local_to_component && lookup_result.property_visibility == PropertyVisibility::Private {
             ctx.diag.push_error(format!("The property '{}' is private. Annotate it with 'in', 'out' or 'in-out' to make it accessible from other components", second.text()), &second);
             return None;
@@ -2549,14 +2546,14 @@ fn continue_lookup_within_element(
             lookup_result.resolved_name.to_smolstr(),
         ));
         maybe_lookup_object(prop.into(), it, ctx)
-    } else if matches!(lookup_result.property_type, Type::Callback { .. }) {
+    } else if sc_resolves && matches!(lookup_result.property_type, Type::Callback { .. }) {
         if let Some(x) = it.next() {
             ctx.diag.push_error("Cannot access fields of callback".into(), &x)
         }
         Some(LookupResult::Callable(LookupResultCallable::Callable(Callable::Callback(
             NamedReference::new(elem, lookup_result.resolved_name.to_smolstr()),
         ))))
-    } else if let Type::Function(fun) = lookup_result.property_type {
+    } else if sc_resolves && let Type::Function(fun) = lookup_result.property_type {
         if lookup_result.property_visibility == PropertyVisibility::Private && !local_to_component {
             let message = format!(
                 "The function '{}' is private. Annotate it with 'public' to make it accessible from other components",
@@ -3076,37 +3073,5 @@ fn check_callback_alias_validity(
                 &node.child_token(SyntaxKind::Identifier).unwrap(),
             );
         }
-    }
-}
-
-/// Validate an identifier reference against the Slint SC subset.
-///
-/// The accepted references are a read of a property of an SC type, on any
-/// element reached by `self`, `parent`, `root`, or an element `id`, a boolean
-/// literal, a value of a user-declared enum, and a field access on an SC struct.
-/// A reference to a non-SC type, or to something else, is rejected. A property
-/// declaration's binding follows the same rules.
-///
-/// This is the backstop behind the lookup's own gating: the global-scope
-/// names full Slint has beyond the subset don't resolve in SC mode in the
-/// first place, and get a dedicated message (see `NotInSlintSc` in the
-/// lookup module).
-#[cfg(feature = "slint-sc")]
-fn check_slint_sc_reference(expr: &Expression, node: &SyntaxNode, ctx: &mut LookupCtx) {
-    match expr {
-        // A parse or name-resolution error was already reported for this node.
-        Expression::Invalid => {}
-        Expression::PropertyReference(nr) if nr.ty().is_slint_sc() => {}
-        // The predefined names `true` and `false` resolve to a boolean value
-        // (a property of the same name would shadow them and resolve above).
-        Expression::BoolLiteral(_) => {}
-        // A value of a user-declared enum, written `EnumName.value`.
-        Expression::EnumerationValue(ev) if ev.enumeration.node.is_some() => {}
-        // A field access on a value an SC expression may produce, written
-        // `some-struct.field`, or the dimensions of an image value,
-        // `some-image.width` and `some-image.height`. The base being such a
-        // value is enough: its fields are always SC types.
-        Expression::StructFieldAccess { base, .. } if base.ty().is_slint_sc_value() => {}
-        _ => ctx.diag.slint_sc_error("Identifier references are", node),
     }
 }
