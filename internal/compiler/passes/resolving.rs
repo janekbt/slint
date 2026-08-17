@@ -2366,13 +2366,6 @@ fn lookup_qualified_name_node(
                 }
             }
 
-            // Nothing better to say: if the name is one the Slint SC gating
-            // hid, report it as unsupported rather than unknown.
-            #[cfg(feature = "slint-sc")]
-            if slint_sc_hidden_name(ctx, &first_str, first.text(), &node) {
-                return None;
-            }
-
             if it.next().is_some() {
                 ctx.diag.push_error(format!("Cannot access id '{}'", first.text()), &node);
             } else {
@@ -3084,23 +3077,6 @@ fn check_callback_alias_validity(
             );
         }
     }
-}
-
-/// Report a name that the Slint SC lookup gating hid, if that is what failed
-/// to resolve: a hidden name still resolves among the gated providers, see
-/// `HiddenInSlintSc` in the lookup module. Returns whether it reported.
-#[cfg(feature = "slint-sc")]
-fn slint_sc_hidden_name(
-    ctx: &mut LookupCtx,
-    name: &SmolStr,
-    display: &str,
-    node: &SyntaxNode,
-) -> bool {
-    if !ctx.diag.slint_sc || crate::lookup::slint_sc_hidden_lookup().lookup(ctx, name).is_none() {
-        return false;
-    }
-    ctx.diag.slint_sc_error(&format!("'{display}' is"), node);
-    true
 }
 
 /// Validate an identifier reference against the Slint SC subset.

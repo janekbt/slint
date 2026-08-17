@@ -1011,9 +1011,8 @@ impl LookupObject for BuiltinNamespaceLookup {
 }
 
 /// A lookup provider of full Slint that the Slint SC subset doesn't offer:
-/// in SC mode the names it would resolve don't resolve at all. The resolver
-/// then reports such a name as unsupported rather than unknown, by looking
-/// it up once more through [`slint_sc_hidden_lookup`].
+/// in SC mode the names it would resolve don't resolve at all, and get the
+/// ordinary unknown-identifier error.
 struct HiddenInSlintSc<T>(T);
 impl<T: LookupObject> LookupObject for HiddenInSlintSc<T> {
     fn for_each_entry<R>(
@@ -1079,15 +1078,6 @@ pub fn global_lookup() -> impl LookupObject {
             ),
         ),
     )
-}
-
-/// The providers [`global_lookup`] wraps in [`HiddenInSlintSc`], without the
-/// gate. The resolver diagnoses a name the subset hides by looking it up
-/// here after the global lookup failed; the other providers of the chain
-/// just failed and need no second try.
-#[cfg(feature = "slint-sc")]
-pub(crate) fn slint_sc_hidden_lookup() -> impl LookupObject {
-    (BuiltinNamespaceLookup, (ColorEasingCursorLookup, BuiltinFunctionLookup))
 }
 
 impl LookupObject for Expression {
