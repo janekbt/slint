@@ -37,8 +37,6 @@ export component Test inherits Window {
     //#sls.expr.image.no-nine-slice
     property <image> i5: @image-url("image_2x2.png", nine-slice(1 2 3 4));
 //                       >                                              <error{Nine-slice borders in @image-url() are not supported in Slint SC}
-    // SVG images are rejected in image.slint: embedding only happens when the
-    // rest of the file has no errors
     // @tr
     property <string> j: @tr("hello");
 //            >    <error{The type 'string' is not supported in Slint SC}
