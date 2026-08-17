@@ -116,7 +116,8 @@ fn check_public_api_component(root_component: &Rc<Component>, diag: &mut BuildDi
     root_elem.property_declarations.iter_mut().for_each(|(n, d)| {
         if d.property_type.ok_for_public_api() {
             if d.visibility == PropertyVisibility::Private {
-                root_component.private_properties.borrow_mut().push((n.clone(), d.property_type.clone()));
+                // Report the name as it is written in the source, not the internal name of a shadow
+                root_component.private_properties.borrow_mut().push((d.source_name(n).clone(), d.property_type.clone()));
             } else {
                 d.expose_in_public_api = true;
                 if d.visibility != PropertyVisibility::Output {

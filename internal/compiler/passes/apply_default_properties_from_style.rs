@@ -102,7 +102,7 @@ pub fn apply_default_properties_from_style(
                             style_metrics
                                 .root_element
                                 .borrow()
-                                .lookup_property(property_name)
+                                .lookup_property_by_internal_name(property_name)
                                 .property_type,
                             Type::Invalid,
                         ) {

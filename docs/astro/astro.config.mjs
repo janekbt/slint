@@ -314,6 +314,10 @@ export default defineConfig({
                                                   slug: "guide/experimental/deprecated",
                                               },
                                               {
+                                                  label: "Shadowable Members",
+                                                  slug: "guide/experimental/shadowable",
+                                              },
+                                              {
                                                   label: "Flexbox Item Properties",
                                                   slug: "guide/experimental/flexbox-item-properties",
                                               },

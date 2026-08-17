@@ -67,7 +67,8 @@ pub fn handle_visible(
             };
 
             let has_visible_binding = |e: &ElementRc| {
-                e.borrow().base_type.lookup_property("visible").property_type != Type::Invalid
+                e.borrow().base_type.lookup_property_by_internal_name("visible").property_type
+                    != Type::Invalid
                     && (e.borrow().binding("visible").is_some()
                         || e.borrow()
                             .property_analysis

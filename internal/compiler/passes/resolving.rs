@@ -2532,7 +2532,7 @@ fn continue_lookup_within_element(
         }
         let prop = Expression::PropertyReference(NamedReference::new(
             elem,
-            lookup_result.resolved_name.to_smolstr(),
+            lookup_result.internal_or_resolved_name(),
         ));
         maybe_lookup_object(prop.into(), it, ctx)
     } else if matches!(lookup_result.property_type, Type::Callback { .. }) {
@@ -2540,9 +2540,9 @@ fn continue_lookup_within_element(
             ctx.diag.push_error("Cannot access fields of callback".into(), &x)
         }
         Some(LookupResult::Callable(LookupResultCallable::Callable(Callable::Callback(
-            NamedReference::new(elem, lookup_result.resolved_name.to_smolstr()),
+            NamedReference::new(elem, lookup_result.internal_or_resolved_name()),
         ))))
-    } else if let Type::Function(fun) = lookup_result.property_type {
+    } else if let Type::Function(fun) = &lookup_result.property_type {
         if lookup_result.property_visibility == PropertyVisibility::Private && !local_to_component {
             let message = format!(
                 "The function '{}' is private. Annotate it with 'public' to make it accessible from other components",
@@ -2567,7 +2567,7 @@ fn continue_lookup_within_element(
             Some(builtin) => Callable::Builtin(builtin),
             None => Callable::Function(NamedReference::new(
                 elem,
-                lookup_result.resolved_name.to_smolstr(),
+                lookup_result.internal_or_resolved_name(),
             )),
         };
         if matches!(fun.args.first(), Some(Type::ElementReference)) {
@@ -2720,7 +2720,7 @@ fn resolve_two_way_bindings_for_element(
             .or_else(|| elem.borrow().callback_alias_declaration_node(prop_name));
         if let Some(n) = twb_node {
             let node: SyntaxNode = n.clone().into();
-            let lhs_lookup = elem.borrow().lookup_property(prop_name);
+            let lhs_lookup = elem.borrow().lookup_property_by_internal_name(prop_name);
             if !lhs_lookup.is_valid() {
                 // An attempt to resolve this already failed when trying to resolve the property type
                 assert!(diag.has_errors());
@@ -2774,7 +2774,8 @@ fn resolve_two_way_bindings_for_element(
                 }
 
                 // Check the compatibility.
-                let mut rhs_lookup = nr.element().borrow().lookup_property(nr.name());
+                let mut rhs_lookup =
+                    nr.element().borrow().lookup_property_by_internal_name(nr.name());
                 if rhs_lookup.property_type == Type::Invalid {
                     // An attempt to resolve this already failed when trying to resolve the property type
                     assert!(diag.has_errors());

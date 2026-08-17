@@ -49,7 +49,8 @@ pub(crate) fn lower_property_to_element(
 
         let has_property_binding = |e: &ElementRc| {
             property_names.clone().any(|property_name| {
-                e.borrow().base_type.lookup_property(property_name).property_type != Type::Invalid
+                e.borrow().base_type.lookup_property_by_internal_name(property_name).property_type
+                    != Type::Invalid
                     && (e.borrow().binding(property_name).is_some()
                         || e.borrow()
                             .property_analysis

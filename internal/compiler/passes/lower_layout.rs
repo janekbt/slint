@@ -521,7 +521,7 @@ fn lower_element_layout(
     // Create fake properties for the layout properties
     // like alignment, spacing, spacing-horizontal, spacing-vertical
     for (p, ty) in prev_base.property_list() {
-        if !elem.base_type.lookup_property(&p).is_valid()
+        if !elem.base_type.lookup_property_by_internal_name(&p).is_valid()
             && !elem.property_declarations.contains_key(&p)
         {
             elem.property_declarations.insert(p, ty.into());
@@ -2032,7 +2032,7 @@ fn lower_dialog_layout(
                 );
             }
             true
-        } else if matches!(&layout_child.borrow().lookup_property("kind").property_type, Type::Enumeration(e) if e.name == "StandardButtonKind")
+        } else if matches!(&layout_child.borrow().lookup_property_by_internal_name("kind").property_type, Type::Enumeration(e) if e.name == "StandardButtonKind")
         {
             // layout_child is a StandardButton
             match layout_child.borrow().binding("kind") {
@@ -2073,8 +2073,10 @@ fn lower_dialog_layout(
                                 .unwrap()
                                 .root_element,
                         ) {
-                            let clicked_ty =
-                                layout_child.borrow().lookup_property("clicked").property_type;
+                            let clicked_ty = layout_child
+                                .borrow()
+                                .lookup_property_by_internal_name("clicked")
+                                .property_type;
                             if matches!(&clicked_ty, Type::Callback { .. })
                                 && layout_child.borrow().binding("clicked").is_none_or(|c| {
                                     matches!(c.value_expression(), Expression::Invalid)
@@ -2094,7 +2096,8 @@ fn lower_dialog_layout(
                                         )),
                                         visibility: PropertyVisibility::InOut,
                                         pure: None,
-                                        shadows_builtin: false,
+                                        shadowed_name: None,
+                                        shadowable: false,
                                         deprecated: None,
                                     });
                             }

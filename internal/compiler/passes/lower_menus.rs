@@ -541,7 +541,7 @@ fn process_window(
 
     for prop in [ENTRIES, SUB_MENU, ACTIVATED] {
         // materialize the properties and callbacks
-        let ty = components.menubar_impl.lookup_property(prop).property_type;
+        let ty = components.menubar_impl.lookup_property_by_internal_name(prop).property_type;
         assert_ne!(ty, Type::Invalid, "Can't lookup type for {prop}");
         let nr = NamedReference::new(&menu_bar, SmolStr::new_static(prop));
         let forward_expr = if let Type::Callback(cb) = &ty {
